@@ -1,0 +1,42 @@
+name: AEGIS Anchor Tests
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'packages/contracts/**'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'packages/contracts/**'
+
+jobs:
+  anchor-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install Solana
+        run: |
+          sh -c "$(curl -sSfL https://release.solana.com/v1.18.4/install)"
+          echo "/home/runner/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Install Anchor CLI
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          avm install latest
+          avm use latest
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Run Anchor Tests
+        run: |
+          cd packages/contracts
+          anchor test
