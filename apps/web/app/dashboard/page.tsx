@@ -1,4 +1,5 @@
 import { PendingActions } from '../../components/agents/PendingActions';
+import { VaultControl } from '../../components/portfolio/VaultControl';
 
 export default function DashboardPage() {
   return (
@@ -14,6 +15,9 @@ export default function DashboardPage() {
         
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
+            {/* Vault Controls */}
+            <VaultControl />
+
             {/* Portfolio Chart */}
             <div className="bg-slate-900 border border-slate-800 rounded-lg p-6 min-h-[400px] flex flex-col">
                 <h3 className="text-lg font-medium text-slate-200 mb-4">Portfolio Performance</h3>
