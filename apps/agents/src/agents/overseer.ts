@@ -6,6 +6,13 @@
  */
 
 import { z } from 'zod';
+import { 
+  AgentProposal, 
+  ConsensusResult, 
+  PendingAction, 
+  SwarmTask, 
+  TaskResult 
+} from '@aegis/shared';
 
 export const OverseerConfigSchema = z.object({
   consensusThreshold: z.number().min(0.5).max(1).default(0.6),
@@ -25,59 +32,71 @@ export class Overseer {
   /**
    * Coordinate agent consensus on a proposed action
    */
-  async coordinateConsensus(proposal: AgentProposal): Promise<ConsensusResult> {
-    // TODO: Implement multi-agent voting mechanism
-    throw new Error('Not implemented');
+  async coordinateConsensus(proposal: AgentProposal, votes: { agent: string; vote: boolean; confidence: number }[]): Promise<ConsensusResult> {
+    // Calculate weighted score based on confidence
+    let totalScore = 0;
+    let maxPossibleScore = 0;
+
+    for (const vote of votes) {
+      // Confidence is 0-1
+      const weight = vote.confidence;
+      maxPossibleScore += weight;
+      if (vote.vote) {
+        totalScore += weight;
+      }
+    }
+
+    // Normalize score to 0-1
+    const finalScore = maxPossibleScore > 0 ? totalScore / maxPossibleScore : 0;
+    const approved = finalScore >= this.config.consensusThreshold;
+
+    return {
+      approved,
+      votes,
+      finalScore
+    };
   }
 
   /**
-   * Request human approval for high-value actions
+   * Check if an action requires human approval
+   * Returns true if approval is REQUIRED and NOT YET GRANTED.
+   * In a real flow, this would trigger the wallet UI.
    */
   async requestHumanApproval(action: PendingAction): Promise<boolean> {
-    // TODO: Integrate with Privy embedded wallet for approval
-    throw new Error('Not implemented');
+    // If the value is below threshold, auto-approve (return false = no human approval needed)
+    if (action.estimatedValue < this.config.humanApprovalThreshold) {
+      return false; 
+    }
+
+    // If above threshold, we need human approval.
+    // In this backend simulation, we return true to indicate "Pending Approval".
+    // The calling workflow would then pause or send a notification.
+    console.log(`[Overseer] Action ${action.id} ($${action.estimatedValue}) requires human approval.`);
+    return true;
   }
 
   /**
    * Dispatch tasks to specialized agents
    */
   async dispatchTask(task: SwarmTask): Promise<TaskResult> {
-    // TODO: Route tasks to appropriate agent
-    throw new Error('Not implemented');
+    console.log(`[Overseer] Dispatching task: ${task.type} (${task.id})`);
+
+    try {
+      // Mock dispatch logic - in a real system this would use an event bus or direct agent calls
+      switch (task.type) {
+        case 'analyze_token':
+          return { success: true, data: { message: "Dispatched to Analyst" } };
+        case 'execute_trade':
+          return { success: true, data: { message: "Dispatched to Trader" } };
+        case 'check_risk':
+          return { success: true, data: { message: "Dispatched to Sentinel" } };
+        case 'generate_report':
+          return { success: true, data: { message: "Dispatched to Scribe" } };
+        default:
+          return { success: false, error: `Unknown task type: ${task.type}` };
+      }
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
   }
-}
-
-// Type definitions
-export interface AgentProposal {
-  id: string;
-  type: 'trade' | 'rebalance' | 'alert';
-  proposedBy: string;
-  details: Record<string, unknown>;
-  timestamp: Date;
-}
-
-export interface ConsensusResult {
-  approved: boolean;
-  votes: { agent: string; vote: boolean; confidence: number }[];
-  finalScore: number;
-}
-
-export interface PendingAction {
-  id: string;
-  type: string;
-  estimatedValue: number;
-  description: string;
-}
-
-export interface SwarmTask {
-  id: string;
-  type: string;
-  priority: 'low' | 'medium' | 'high' | 'critical';
-  payload: Record<string, unknown>;
-}
-
-export interface TaskResult {
-  success: boolean;
-  data?: Record<string, unknown>;
-  error?: string;
 }
