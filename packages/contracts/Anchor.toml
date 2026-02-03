@@ -1,0 +1,13 @@
+[features]
+seeds = false
+skip-lint = false
+
+[programs.localnet]
+aegis_vault = "AEG1SVault111111111111111111111111111111111"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "node ./tests/run-tests.js"

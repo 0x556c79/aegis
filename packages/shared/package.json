@@ -1,0 +1,20 @@
+{
+  "name": "@aegis/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "echo \"[shared] lint not configured yet\"",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "@types/node": "^22.10.5",
+    "eslint": "^9.17.0",
+    "vitest": "^2.1.8"
+  }
+}

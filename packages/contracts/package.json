@@ -1,0 +1,16 @@
+{
+  "name": "@aegis/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AEGIS on-chain programs (Anchor)",
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "anchor:build": "anchor build",
+    "anchor:test": "anchor test",
+    "anchor:deploy": "anchor deploy",
+    "lint": "prettier --check ."
+  },
+  "devDependencies": {
+    "prettier": "^3.2.5"
+  }
+}
