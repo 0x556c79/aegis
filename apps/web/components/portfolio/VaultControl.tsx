@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
-import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction } from '@solana/web3.js';
+import { createDepositInstruction, createWithdrawInstruction, DEVNET_USDC_MINT } from '../../lib/anchor-client';
 
 export function VaultControl() {
   const { login, authenticated } = usePrivy();
@@ -27,23 +28,20 @@ export function VaultControl() {
         const connection = new Connection('https://api.devnet.solana.com');
         const userPublicKey = new PublicKey(wallet.address);
         
-        // --- ANCHOR INTERACTION STUB ---
-        // In a real implementation, we would import the IDL and use anchor.Program
-        // const provider = new AnchorProvider(connection, wallet, {});
-        // const program = new Program(IDL, PROGRAM_ID, provider);
-        // await program.methods.deposit(new BN(amount)).accounts({...}).rpc();
+        // Convert amount to atoms (USDC has 6 decimals)
+        const amountAtoms = Math.floor(Number(amount) * 1_000_000);
+
+        let instruction;
+        if (activeTab === 'deposit') {
+            instruction = await createDepositInstruction(userPublicKey, amountAtoms, DEVNET_USDC_MINT);
+        } else {
+            instruction = await createWithdrawInstruction(userPublicKey, amountAtoms, DEVNET_USDC_MINT);
+        }
+
+        const tx = new Transaction().add(instruction);
         
-        // For Hackathon Demo purposes (Visual):
-        // We simulate a transaction sign request
-        const tx = new Transaction().add(
-            SystemProgram.transfer({
-                fromPubkey: userPublicKey,
-                toPubkey: userPublicKey, // Self-transfer as mock
-                lamports: Number(amount) * LAMPORTS_PER_SOL, // Mock amount
-            })
-        );
-        
-        tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+        const latestBlockhash = await connection.getLatestBlockhash();
+        tx.recentBlockhash = latestBlockhash.blockhash;
         tx.feePayer = userPublicKey;
 
         // Privy sign/send
@@ -104,7 +102,7 @@ export function VaultControl() {
             {/* Input */}
             <div className="space-y-4">
                 <div>
-                    <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Amount (SOL)</label>
+                    <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Amount (USDC)</label>
                     <div className="relative">
                         <input 
                             type="number" 
@@ -113,7 +111,7 @@ export function VaultControl() {
                             placeholder="0.00"
                             className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-4 pr-12 py-3 text-white text-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
                         />
-                        <div className="absolute right-4 top-3.5 text-slate-500 font-medium">SOL</div>
+                        <div className="absolute right-4 top-3.5 text-slate-500 font-medium">USDC</div>
                     </div>
                 </div>
 
@@ -146,4 +144,3 @@ export function VaultControl() {
       )}
     </div>
   );
-}
