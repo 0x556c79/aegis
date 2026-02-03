@@ -6,6 +6,8 @@
  */
 
 import { z } from 'zod';
+import Redis from 'ioredis';
+import { REDIS_CHANNELS } from '@aegis/shared';
 import { HeliusTool, type TokenBalance } from '../tools/helius';
 
 export const SentinelConfigSchema = z.object({
@@ -14,6 +16,7 @@ export const SentinelConfigSchema = z.object({
   defaultTakeProfit: z.number().min(0).max(1000).default(50), // percentage
   maxPositionSize: z.number().min(0).max(100).default(25), // percentage of portfolio
   heliusApiKey: z.string().optional(),
+  redisUrl: z.string().optional(),
 });
 
 export type SentinelConfig = z.infer<typeof SentinelConfigSchema>;
@@ -25,12 +28,15 @@ export class Sentinel {
   private positions: Map<string, Position> = new Map(); // mint -> Position
   private monitoringTimer: NodeJS.Timeout | null = null;
   private walletAddress: string | null = null;
+  private redisSub: Redis | null = null;
 
   constructor(config: Partial<SentinelConfig> = {}) {
     this.config = SentinelConfigSchema.parse(config);
     if (this.config.heliusApiKey) {
       this.helius = new HeliusTool({ apiKey: this.config.heliusApiKey });
     }
+    const redisUrl = this.config.redisUrl || process.env.REDIS_URL || 'redis://localhost:6379';
+    this.redisSub = new Redis(redisUrl);
   }
 
   /**
@@ -63,7 +69,31 @@ export class Sentinel {
         console.warn('Failed to register webhook, falling back to polling only:', e);
     }
 
-    // Start Polling Interval for Price Checks
+    // Subscribe to Redis events for real-time updates
+    if (this.redisSub) {
+      await this.redisSub.subscribe(REDIS_CHANNELS.HELIUS_WEBHOOK);
+      this.redisSub.on('message', async (channel, message) => {
+        if (channel === REDIS_CHANNELS.HELIUS_WEBHOOK) {
+          try {
+             const event = JSON.parse(message);
+             // Basic check if the event relates to our monitored wallet
+             // Helius enhanced transactions usually have 'accountData' or 'description' involving addresses
+             // We'll just conservative check if it mentions the wallet
+             const payloadStr = message;
+             if (this.walletAddress && payloadStr.includes(this.walletAddress)) {
+                console.log('Sentinel received webhook event, updating portfolio...');
+                await this.updatePortfolio(this.walletAddress);
+                await this.runRiskChecks();
+             }
+          } catch (e) {
+             console.error('Error processing webhook message:', e);
+          }
+        }
+      });
+      console.log('Sentinel subscribed to real-time webhook events');
+    }
+
+    // Start Polling Interval for Price Checks (Keep as backup)
     this.monitoringTimer = setInterval(async () => {
         try {
             await this.updatePortfolio(walletAddress);
@@ -82,6 +112,10 @@ export class Sentinel {
     if (this.monitoringTimer) {
         clearInterval(this.monitoringTimer);
         this.monitoringTimer = null;
+    }
+    if (this.redisSub) {
+        await this.redisSub.unsubscribe(REDIS_CHANNELS.HELIUS_WEBHOOK);
+        // We don't disconnect because the instance might be reused, or we could if it's single use
     }
   }
 

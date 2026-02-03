@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod';
+import Redis from 'ioredis';
 import { 
   AgentProposal, 
   ConsensusResult, 
@@ -18,15 +19,19 @@ export const OverseerConfigSchema = z.object({
   consensusThreshold: z.number().min(0.5).max(1).default(0.6),
   maxConcurrentTasks: z.number().int().positive().default(5),
   humanApprovalThreshold: z.number().positive().default(100), // USD value requiring approval
+  redisUrl: z.string().optional(),
 });
 
 export type OverseerConfig = z.infer<typeof OverseerConfigSchema>;
 
 export class Overseer {
   private config: OverseerConfig;
+  private redis: Redis;
 
   constructor(config: Partial<OverseerConfig> = {}) {
     this.config = OverseerConfigSchema.parse(config);
+    const redisUrl = this.config.redisUrl || process.env.REDIS_URL || 'redis://localhost:6379';
+    this.redis = new Redis(redisUrl);
   }
 
   /**
@@ -69,9 +74,23 @@ export class Overseer {
     }
 
     // If above threshold, we need human approval.
-    // In this backend simulation, we return true to indicate "Pending Approval".
-    // The calling workflow would then pause or send a notification.
-    console.log(`[Overseer] Action ${action.id} ($${action.estimatedValue}) requires human approval.`);
+    // Store in Redis so the frontend can retrieve it
+    const key = `aegis:pending:${action.id}`;
+    
+    // We store the full action object. 
+    // Ideally set an expiry (e.g. 1 hour)
+    await this.redis.setex(key, 3600, JSON.stringify(action));
+    await this.redis.sadd('aegis:pending_actions', action.id);
+
+    // Notify listeners (Frontend or other agents)
+    // Using a generic 'updates' channel
+    await this.redis.publish('aegis:updates', JSON.stringify({
+        type: 'APPROVAL_NEEDED',
+        actionId: action.id,
+        timestamp: Date.now()
+    }));
+
+    console.log(`[Overseer] Action ${action.id} ($${action.estimatedValue}) requires human approval. Stored in Redis.`);
     return true;
   }
 

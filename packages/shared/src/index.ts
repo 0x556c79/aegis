@@ -167,3 +167,8 @@ export interface TaskResult {
   data?: Record<string, unknown>;
   error?: string;
 }
+
+export const REDIS_CHANNELS = {
+  HELIUS_WEBHOOK: 'helius-webhook-events',
+  RISK_ALERTS: 'risk-alerts',
+} as const;
