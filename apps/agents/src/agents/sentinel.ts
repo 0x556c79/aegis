@@ -86,6 +86,17 @@ export class Sentinel {
   }
 
   /**
+   * Assess wallet risk immediately
+   */
+  async assessWallet(walletAddress: string): Promise<RiskAssessment | null> {
+    this.walletAddress = walletAddress;
+    await this.updatePortfolio(walletAddress);
+    const portfolio = this.getPortfolio();
+    if (!portfolio) return null;
+    return this.evaluateRisk(portfolio);
+  }
+
+  /**
    * Update internal portfolio state
    */
   private async updatePortfolio(walletAddress: string): Promise<void> {
