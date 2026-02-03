@@ -11,16 +11,14 @@ export async function POST(
       return NextResponse.json({ error: 'Missing id' }, { status: 400 });
     }
 
-    // Remove from pending set + delete payload key
     const pendingKey = `aegis:pending:${id}`;
     await redis.srem('aegis:pending_actions', id);
     await redis.del(pendingKey);
 
-    // Broadcast update for UI/agents
     await redis.publish(
       'aegis:updates',
       JSON.stringify({
-        type: 'APPROVED',
+        type: 'REJECTED',
         actionId: id,
         timestamp: Date.now(),
       })
@@ -28,7 +26,7 @@ export async function POST(
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {
-    console.error('Error approving action:', error);
+    console.error('Error rejecting action:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

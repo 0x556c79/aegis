@@ -47,6 +47,7 @@ export function PendingActions() {
         const res = await fetch(`/api/actions/${action.id}/approve`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            // Future: include signed payload / tx id / approver metadata
             body: JSON.stringify({ approvedBy: 'user' }), 
         });
         

@@ -1,7 +1,9 @@
-import { PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { PublicKey, TransactionInstruction, SystemProgram } from '@solana/web3.js';
+import BN from 'bn.js';
 
 // Configuration
-export const PROGRAM_ID = new PublicKey('AeG1sVaUlT11111111111111111111111111111111');
+// Must match the on-chain program id in packages/contracts/programs/aegis-vault/src/lib.rs
+export const PROGRAM_ID = new PublicKey('AEG1SVault111111111111111111111111111111111');
 export const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
 export const DEVNET_USDC_MINT = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
@@ -22,78 +24,132 @@ function getAssociatedTokenAddress(mint: PublicKey, owner: PublicKey, allowOwner
   )[0];
 }
 
-function getVaultAddress(authority: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from('vault'), authority.toBuffer()], PROGRAM_ID)[0];
+export function getVaultAddress(owner: PublicKey, mint: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('vault'), owner.toBuffer(), mint.toBuffer()],
+    PROGRAM_ID
+  )[0];
+}
+
+export function getStrategyAddress(vault: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('strategy'), vault.toBuffer()],
+    PROGRAM_ID
+  )[0];
+}
+
+export function getVaultTokenAccountAddress(vault: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('vault_token_account'), vault.toBuffer()],
+    PROGRAM_ID
+  )[0];
+}
+
+export function getPositionAddress(vault: PublicKey, user: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('position'), vault.toBuffer(), user.toBuffer()],
+    PROGRAM_ID
+  )[0];
 }
 
 // Instruction Builders
+
+/**
+ * Creates a Deposit instruction.
+ * 
+ * Accounts:
+ * 1. vault (mut)
+ * 2. strategy
+ * 3. vault_token_account (mut)
+ * 4. position (mut, init_if_needed)
+ * 5. user_token_account (mut)
+ * 6. user (signer, mut)
+ * 7. token_program
+ * 8. system_program
+ */
 export async function createDepositInstruction(
-  authority: PublicKey,
-  amount: number, // In raw units (atoms)
+  owner: PublicKey, // Owner of the vault (usually same as user for self-custody logic)
+  user: PublicKey,  // The user depositing
+  amount: number | BN, 
   mint: PublicKey = DEVNET_USDC_MINT
 ): Promise<TransactionInstruction> {
-  const vault = getVaultAddress(authority);
-  const vaultTokenAccount = getAssociatedTokenAddress(mint, vault, true);
-  const userTokenAccount = getAssociatedTokenAddress(mint, authority);
+  const vault = getVaultAddress(owner, mint);
+  const strategy = getStrategyAddress(vault);
+  const vaultTokenAccount = getVaultTokenAccountAddress(vault);
+  const position = getPositionAddress(vault, user);
+  const userTokenAccount = getAssociatedTokenAddress(mint, user);
 
+  const amountBN = amount instanceof BN ? amount : new BN(amount);
+  
   const data = Buffer.concat([
     DISCRIMINATOR_DEPOSIT,
-    new BN(amount).toArrayLike(Buffer, 'le', 8),
+    amountBN.toArrayLike(Buffer, 'le', 8),
   ]);
 
   return new TransactionInstruction({
     keys: [
       { pubkey: vault, isSigner: false, isWritable: true },
+      { pubkey: strategy, isSigner: false, isWritable: false },
       { pubkey: vaultTokenAccount, isSigner: false, isWritable: true },
+      { pubkey: position, isSigner: false, isWritable: true },
       { pubkey: userTokenAccount, isSigner: false, isWritable: true },
-      { pubkey: mint, isSigner: false, isWritable: false },
-      { pubkey: authority, isSigner: true, isWritable: true },
+      { pubkey: user, isSigner: true, isWritable: true },
       { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
     programId: PROGRAM_ID,
     data,
   });
 }
 
+/**
+ * Creates a Withdraw instruction.
+ * 
+ * Accounts:
+ * 1. vault (mut)
+ * 2. strategy
+ * 3. agent_authority (pda)
+ * 4. vault_token_account (mut)
+ * 5. position (mut)
+ * 6. user_token_account (mut)
+ * 7. user (signer, mut)
+ * 8. token_program
+ */
 export async function createWithdrawInstruction(
-  authority: PublicKey,
-  amount: number, // In raw units
+  owner: PublicKey, // Owner of the vault
+  user: PublicKey,  // The user withdrawing
+  amount: number | BN,
   mint: PublicKey = DEVNET_USDC_MINT
 ): Promise<TransactionInstruction> {
-  const vault = getVaultAddress(authority);
-  const vaultTokenAccount = getAssociatedTokenAddress(mint, vault, true);
-  const userTokenAccount = getAssociatedTokenAddress(mint, authority);
+  const vault = getVaultAddress(owner, mint);
+  const strategy = getStrategyAddress(vault);
+  const agentAuthority = PublicKey.findProgramAddressSync(
+    [Buffer.from('agent_authority'), vault.toBuffer()],
+    PROGRAM_ID
+  )[0];
+  const vaultTokenAccount = getVaultTokenAccountAddress(vault);
+  const position = getPositionAddress(vault, user);
+  const userTokenAccount = getAssociatedTokenAddress(mint, user);
+
+  const amountBN = amount instanceof BN ? amount : new BN(amount);
 
   const data = Buffer.concat([
     DISCRIMINATOR_WITHDRAW,
-    new BN(amount).toArrayLike(Buffer, 'le', 8),
+    amountBN.toArrayLike(Buffer, 'le', 8),
   ]);
 
   return new TransactionInstruction({
     keys: [
       { pubkey: vault, isSigner: false, isWritable: true },
+      { pubkey: strategy, isSigner: false, isWritable: false },
+      { pubkey: agentAuthority, isSigner: false, isWritable: false },
       { pubkey: vaultTokenAccount, isSigner: false, isWritable: true },
+      { pubkey: position, isSigner: false, isWritable: true },
       { pubkey: userTokenAccount, isSigner: false, isWritable: true },
-      { pubkey: mint, isSigner: false, isWritable: false },
-      { pubkey: authority, isSigner: true, isWritable: true },
+      { pubkey: user, isSigner: true, isWritable: true },
       { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
     ],
     programId: PROGRAM_ID,
     data,
   });
-}
-
-// Simple BN polyfill for little-endian u64 serialization if BN not available
-// (But usually we'd add bn.js. For now, using a helper to avoid deps issue if not present)
-class BN {
-  constructor(public num: number) {}
-
-  toArrayLike(_type: unknown, _endian: string, length: number): Buffer {
-    const buffer = Buffer.alloc(length);
-    const bigInt = BigInt(this.num);
-    for (let i = 0; i < length; i++) {
-      buffer[i] = Number((bigInt >> BigInt(8 * i)) & BigInt(0xff));
-    }
-    return buffer;
-  }
 }

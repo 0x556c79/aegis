@@ -33,9 +33,10 @@ export function VaultControl() {
 
         let instruction;
         if (activeTab === 'deposit') {
-            instruction = await createDepositInstruction(userPublicKey, amountAtoms, DEVNET_USDC_MINT);
+            // owner = userPublicKey (self-custody vault), user = userPublicKey
+            instruction = await createDepositInstruction(userPublicKey, userPublicKey, amountAtoms, DEVNET_USDC_MINT);
         } else {
-            instruction = await createWithdrawInstruction(userPublicKey, amountAtoms, DEVNET_USDC_MINT);
+            instruction = await createWithdrawInstruction(userPublicKey, userPublicKey, amountAtoms, DEVNET_USDC_MINT);
         }
 
         const tx = new Transaction().add(instruction);
