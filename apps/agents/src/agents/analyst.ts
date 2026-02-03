@@ -7,13 +7,40 @@
 
 import { z } from 'zod';
 import { HeliusTool, TokenBalance } from '../tools/helius';
-import { 
+import type { 
   TokenAnalysis, 
   Signal, 
   Opportunity, 
   PortfolioAnalysis, 
   Holding 
 } from '@aegis/shared';
+
+// DexScreener Validation Schema
+const DexScreenerPairSchema = z.object({
+  baseToken: z.object({
+    name: z.string(),
+    symbol: z.string(),
+    address: z.string(),
+  }),
+  priceUsd: z.string(),
+  priceChange: z.object({
+    h24: z.number().optional(),
+  }).optional(),
+  volume: z.object({
+    h24: z.number().optional(),
+  }).optional(),
+  marketCap: z.number().optional(),
+  fdv: z.number().optional(),
+  liquidity: z.object({
+    usd: z.number().optional(),
+  }).optional(),
+}).passthrough();
+
+const DexScreenerResponseSchema = z.object({
+  pairs: z.array(DexScreenerPairSchema).nullable().optional(),
+});
+
+type DexScreenerPair = z.infer<typeof DexScreenerPairSchema>;
 
 export const AnalystConfigSchema = z.object({
   dataRefreshInterval: z.number().int().positive().default(60000), // ms
@@ -35,13 +62,16 @@ export class Analyst {
     }
   }
 
-  private async fetchDexScreenerData(mint: string): Promise<any> {
+  private async fetchDexScreenerData(mint: string): Promise<DexScreenerPair | null> {
     try {
       const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
       if (!response.ok) {
         throw new Error(`DexScreener API error: ${response.statusText}`);
       }
-      const data = await response.json();
+      
+      const rawData = await response.json();
+      const data = DexScreenerResponseSchema.parse(rawData);
+      
       return data.pairs && data.pairs.length > 0 ? data.pairs[0] : null;
     } catch (error) {
       console.error(`Error fetching DexScreener data for ${mint}:`, error);
