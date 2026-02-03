@@ -46,10 +46,15 @@ export type SwarmState = z.infer<typeof SwarmStateSchema>;
 // Initialize Agents (Singleton-ish for the workflow)
 // In a real app, these might be passed in or resolved from DI
 const analyst = new Analyst();
-const sentinel = new Sentinel();
+const sentinel = new Sentinel({
+    heliusApiKey: process.env.HELIUS_API_KEY,
+    redisUrl: process.env.REDIS_URL
+});
 const trader = new Trader();
 const scribe = new Scribe();
-const overseer = new Overseer();
+const overseer = new Overseer({
+    redisUrl: process.env.REDIS_URL
+});
 
 // --- Nodes ---
 
@@ -101,12 +106,59 @@ async function sentinelNode(state: SwarmState): Promise<Partial<SwarmState>> {
   };
 }
 
+async function overseerNode(state: SwarmState): Promise<Partial<SwarmState>> {
+    console.log('--- Phase 3: Overseer ---');
+    const { request, isSafe } = state;
+
+    if (!isSafe) {
+        return {}; // Pass through to router which handles unsafe state
+    }
+
+    // Check if this action requires Human Approval
+    if (request.type === 'trade') {
+        const { amount } = request.payload;
+        // Mock ID generation
+        const actionId = `trade-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+        
+        const pendingAction = {
+            id: actionId,
+            type: 'TRADE',
+            description: `Swap ${amount} of ${request.payload.inputMint} for ${request.payload.outputMint}`,
+            estimatedValue: 150, // Mock value, in real app calculate from price
+            payload: request.payload,
+            status: 'PENDING',
+            timestamp: Date.now()
+        };
+
+        const requiresApproval = await overseer.requestHumanApproval(pendingAction);
+
+        if (requiresApproval) {
+            return {
+                executionResult: { 
+                    success: false, 
+                    requiresApproval: true, 
+                    actionId,
+                    message: "Action requires human approval." 
+                },
+                finalResponse: `⏸️ **Approval Required**\nThis trade exceeds the threshold. Please approve action #${actionId} in your dashboard.`
+            };
+        }
+    }
+
+    return {};
+}
+
 async function traderNode(state: SwarmState): Promise<Partial<SwarmState>> {
   console.log('--- Phase 4: Trader ---');
-  const { request, isSafe, intel } = state;
+  const { request, isSafe, executionResult } = state;
 
   if (!isSafe) {
       return { executionResult: { success: false, error: 'Risk check failed' } };
+  }
+
+  // If Overseer flagged it as requiring approval, skip execution
+  if (executionResult?.requiresApproval) {
+      return {};
   }
 
   // Handle Trade Request
@@ -144,7 +196,12 @@ async function traderNode(state: SwarmState): Promise<Partial<SwarmState>> {
 
 async function scribeNode(state: SwarmState): Promise<Partial<SwarmState>> {
   console.log('--- Phase 5: Scribe ---');
-  const { request, intel, riskAssessment, executionPlan, executionResult, isSafe } = state;
+  const { request, intel, riskAssessment, executionPlan, executionResult, isSafe, finalResponse } = state;
+  
+  // If we already have a final response (e.g. from Overseer asking for approval), append to it or return it
+  if (finalResponse) {
+      return { finalResponse };
+  }
   
   let output = '';
 
@@ -191,11 +248,15 @@ async function scribeNode(state: SwarmState): Promise<Partial<SwarmState>> {
 // --- Edges ---
 
 function overseerRouting(state: SwarmState) {
-  console.log('--- Phase 3: Overseer ---');
-  const { isSafe, request } = state;
+  // console.log('--- Phase 3 Routing: Overseer ---'); // Moved logging to node
+  const { isSafe, request, executionResult } = state;
   
   if (!isSafe) {
       return 'scribe'; // Report risk failure
+  }
+  
+  if (executionResult?.requiresApproval) {
+      return 'scribe'; // Report approval needed
   }
 
   if (request.type === 'trade') {
@@ -223,12 +284,14 @@ const workflow = new StateGraph({
 
 workflow.addNode('analyst', analystNode);
 workflow.addNode('sentinel', sentinelNode);
+workflow.addNode('overseer', overseerNode);
 workflow.addNode('trader', traderNode);
 workflow.addNode('scribe', scribeNode);
 
 workflow.setEntryPoint('analyst');
 workflow.addEdge('analyst', 'sentinel');
-workflow.addConditionalEdges('sentinel', overseerRouting, {
+workflow.addEdge('sentinel', 'overseer');
+workflow.addConditionalEdges('overseer', overseerRouting, {
     trader: 'trader',
     scribe: 'scribe'
 });
